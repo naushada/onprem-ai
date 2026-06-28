@@ -13,6 +13,7 @@ export CODELLM_PORT="${CODELLM_PORT:-8080}"
 export CODELLM_CTX="${CODELLM_CTX:-40960}"   # context window; q8 KV keeps it in the M5 GPU budget
 export CODELLM_URL="http://localhost:${CODELLM_PORT}"
 export CODELLM_REPO="${CODELLM_REPO:-$HOME/repo/onprem-ai}"  # where `codellm sync` publishes this script
+export CODELLM_SANDBOX="${CODELLM_SANDBOX:-1}"               # codellm agent runs sandboxed (-s) by default; 0 to disable
 
 # ── internal helpers (prefixed _codellm_) ──────────────────────────────
 _codellm_running() { curl -s "${CODELLM_URL}/health" >/dev/null 2>&1; }
@@ -126,11 +127,15 @@ _codellm_agent() {
     *) echo "codellm: loading the Qwen3-Coder agent model first ..."; _codellm_use agent || return 1 ;;
   esac
   local id; id="$(curl -s "${CODELLM_URL}/v1/models" | jq -r '.data[0].id')"
-  echo "codellm: qwen-code agent → ${id} @ ${CODELLM_URL}  (explores + edits; offline)"
+  # Sandbox on by default (macOS Seatbelt): confines writes to the project, network stays open
+  # so the local model server is reachable. Disable with CODELLM_SANDBOX=0.
+  local sb=() sbnote="sandbox OFF"
+  if [ "${CODELLM_SANDBOX:-1}" != "0" ]; then sb=(-s); sbnote="sandboxed"; fi
+  echo "codellm: qwen-code agent → ${id} @ ${CODELLM_URL}  (${sbnote}; explores + edits; offline)"
   OPENAI_API_KEY="dummy" \
   OPENAI_BASE_URL="${CODELLM_URL}/v1" \
   OPENAI_MODEL="$id" \
-    qwen "$@"
+    qwen "${sb[@]}" "$@"
 }
 
 # Launch Claude Code against the LOCAL server — SCOPED to this one invocation.
@@ -200,7 +205,8 @@ codellm — local coding LLM toolkit
   codellm chat               interactive terminal chat
   codellm ask "question"     one-shot query (also reads piped stdin)
   codellm repo [files...]    aider — repo-aware editing in the current dir
-  codellm agent [args...]    qwen-code — agentic explore + edit (Qwen3-Coder); the Claude-Code-like one
+  codellm agent [args...]    qwen-code — agentic explore + edit (Qwen3-Coder); sandboxed by default
+                             (CODELLM_SANDBOX=0 to disable)
   codellm code [args...]     Claude Code CLI against the LOCAL model (scoped; chat-only, tools flaky)
   codellm guide              open the full guide
   codellm sync ["msg"]       publish codellm.sh to the onprem-ai repo (commit + push)
