@@ -114,6 +114,7 @@ Primary interface is the `codellm <subcommand>` dispatcher (`codellm help` lists
 | `codellm chat` | Interactive terminal chat |
 | `codellm repo [files]` | Launch **aider** in the current repo against the local server |
 | `codellm agent [args]` | **qwen-code** — agentic explore + edit (Qwen3-Coder); the Claude-Code-like one |
+| `codellm warm` | Pre-warm the agent KV cache for the current repo (run before `codellm agent`) |
 | `codellm code [args]` | Claude Code CLI against the **local** model (scoped) — see caveat below |
 | `codellm guide` | Open this guide |
 | `codellm help` | List all subcommands |
@@ -341,6 +342,10 @@ start` **restores** it — so a restart or model-switch-back skips the cold repr
 - A restart still cold-starts **once** if no saved cache exists yet (it's written on the next stop).
 - Tool outputs are genuinely new tokens (always processed) — quieten verbose commands to reduce them.
 - Caching removes redundant prefill; it doesn't make the 30B itself faster.
+
+**Pre-warming:** `codellm warm` (run from your repo) processes qwen's system prompt + tools +
+project context once into the cache, so your next `codellm agent` from that dir has a fast first
+step. It costs ~one cold prefill up front — run it ahead of time or backgrounded (`codellm warm &`).
 
 ### Honest expectations
 
