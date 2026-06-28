@@ -185,6 +185,21 @@ _codellm_agent() {
     qwen "${sb[@]}" "$@"
 }
 
+# Pre-warm the agent's KV cache: run a throwaway headless qwen turn so the server processes
+# qwen's ~44K system-prompt + tools + this repo's project context once. The next `codellm agent`
+# launched from the SAME directory then reuses that cached prefix (fast first step).
+# Run it from your repo dir; backgroundable: `codellm warm &`.
+_codellm_warm() {
+  command -v qwen >/dev/null 2>&1 || { echo "codellm: 'qwen' (qwen-code) not installed" >&2; return 1; }
+  local rid; rid="$(curl -s "${CODELLM_URL}/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)"
+  case "$rid" in *Qwen3-Coder*) : ;; *) echo "codellm: loading the agent model first ..."; _codellm_use agent || return 1 ;; esac
+  local id; id="$(curl -s "${CODELLM_URL}/v1/models" | jq -r '.data[0].id')"
+  echo "codellm: warming agent cache from '$(basename "$PWD")' (system prompt + tools + project context)..."
+  env OPENAI_API_KEY="dummy" OPENAI_BASE_URL="${CODELLM_URL}/v1" OPENAI_MODEL="$id" \
+    qwen -y -p "Reply with exactly: WARM" >/dev/null 2>&1
+  echo "codellm: warm ✓ — run 'codellm agent' in this dir; the first step reuses the cached prefix."
+}
+
 # Launch Claude Code against the LOCAL server — SCOPED to this one invocation.
 # Env vars are set inline on the `claude` process only, so your normal `claude`
 # (and any running session) is never affected.  NOTE: agentic tools are unreliable
@@ -254,6 +269,7 @@ codellm — local coding LLM toolkit
   codellm repo [files...]    aider — repo-aware editing in the current dir
   codellm agent [args...]    qwen-code — agentic explore + edit (Qwen3-Coder); sandboxed by default
                              (CODELLM_SANDBOX=0 to disable)
+  codellm warm               pre-warm the agent KV cache for this repo (run before 'codellm agent')
   codellm code [args...]     Claude Code CLI against the LOCAL model (scoped; chat-only, tools flaky)
   codellm guide              open the full guide
   codellm sync ["msg"]       publish codellm.sh to the onprem-ai repo (commit + push)
@@ -276,6 +292,7 @@ codellm() {
     ask)             _codellm_ask "$@" ;;
     repo)            _codellm_repo "$@" ;;
     agent)           _codellm_agent "$@" ;;
+    warm)            _codellm_warm "$@" ;;
     code)            _codellm_code "$@" ;;
     guide|doc)       _codellm_guide ;;
     sync)            _codellm_sync "$@" ;;
