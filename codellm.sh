@@ -33,10 +33,13 @@ _codellm_start() {
   # --jinja enables the model's tool-call parser (needed for the agentic model).
   local jinja=(); [ -n "${CODELLM_JINJA:-}" ] && jinja=(--jinja)
   # Flash attention + q8_0 KV cache keep a large context within the M5's ~18.6 GB GPU budget.
+  # --parallel 1: single user → one slot, so the conversation's KV cache is always reused.
+  # --cache-reuse: reuse cached KV chunks across context edits (compression) instead of reprocessing.
   nohup "$CODELLM_BIN/llama-server" \
     -m "$CODELLM_MODEL" \
     --port "$CODELLM_PORT" -c "$CODELLM_CTX" -ngl 99 \
-    -fa on -ctk "$CODELLM_KV" -ctv "$CODELLM_KV" "${jinja[@]}" \
+    -fa on -ctk "$CODELLM_KV" -ctv "$CODELLM_KV" \
+    --parallel 1 --cache-reuse 256 "${jinja[@]}" \
     > "$HOME/.config/codellm/server.log" 2>&1 &
   local pid=$!
   # Wait for health — but bail out if the server process dies (don't loop forever).
