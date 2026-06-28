@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm)",
+      "Bash(rm *)",
+      "Bash(sudo rm *)",
+      "Bash(rmdir *)",
+      "Bash(sudo rmdir *)",
+      "Bash(brew install *)",
+      "Bash(brew reinstall *)",
+      "Bash(sudo brew install *)"
+    ],
+    "allow": [
+      "Bash(find *)",
+      "Bash(ls *)"
+    ]
+  },
+  "model": {
+    "generationConfig": {
+      "timeout": 1800000,
+      "maxRetries": 2,
+      "contextWindowSize": 98304
+    }
+  }
+}

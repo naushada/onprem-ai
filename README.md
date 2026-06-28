@@ -32,7 +32,7 @@ Rule of thumb: **16 GB** → 7B (+ maybe 14B); **24 GB** → up to the 30B-A3B a
 | **llama.cpp** | source build | `cmake` (see Step 1) | the inference server (`llama-server`) |
 | **Homebrew** | — | preinstalled | package manager for the below |
 | **aider** | 0.86.2 | `brew install aider` | repo-aware editing (`codellm repo`) |
-| **Node.js / npm** | 26.4.0 / 11.17.0 | `brew install node` | runs qwen-code |
+| **Node.js (LTS)** | **22.x** (`node@22`) | `brew install node@22` | runs qwen-code — **use Node 22, NOT 26** (Node 26's `require(ESM)` change crashes qwen's UI: `ansiRegex is not a function`) |
 | **qwen-code** | 0.19.2 | `npm i -g @qwen-code/qwen-code` | agentic CLI (`codellm agent`) |
 | **huggingface_hub (`hf`)** | 1.21.0 | `pipx install "huggingface_hub[cli,hf_transfer]"` | reliable model downloads |
 | **pipx** | 1.15.0 | `brew install pipx` | isolated Python CLIs |
@@ -61,6 +61,7 @@ pipx install "huggingface_hub[cli,hf_transfer]"
 mkdir -p ~/.config/codellm
 cp codellm.sh ~/.config/codellm/codellm.sh
 cp sandbox-macos-podman.sb ~/.config/codellm/   # podman-aware agent sandbox profile
+mkdir -p ~/.qwen && cp qwen-settings.example.json ~/.qwen/settings.json  # agent timeouts/limits/permissions
 echo 'source ~/.config/codellm/codellm.sh' >> ~/.zshrc
 source ~/.zshrc
 
@@ -312,8 +313,21 @@ codellm agent            # auto-loads the Qwen3-Coder model (jinja/tools on), la
 - `codellm agent` auto-switches the server to the agent model if it isn't already loaded.
 - Interactive mode asks before running tools. For non-interactive/headless, add `-y` (YOLO —
   auto-runs tools): `codellm agent -y -p "find and fix the failing test"`.
-- Context is **65536** for this preset — qwen-code's own system prompt + tool definitions are ~44K
-  tokens, so a big window is mandatory (40960 overflows before you even start).
+- Context is **98304** with a **q4 KV cache** for this preset — qwen-code's system prompt + tool
+  defs are ~44K tokens and build/test output is verbose, so a big window is mandatory. q4 KV keeps
+  it within the M5's memory (~15.8 GB total: 13 GB weights + 2.5 GB KV).
+
+### qwen-code settings (`~/.qwen/settings.json`)
+
+The agent relies on a few settings (global, apply to every qwen run) — see `qwen-settings.example.json`:
+
+| Setting | Value | Why |
+|---|---|---|
+| `model.generationConfig.timeout` | `1800000` (30 min) | the 30B is slow per step; default ~8 min times out |
+| `model.generationConfig.contextWindowSize` | `98304` | tells qwen the real window so it auto-compresses instead of overflowing |
+| `permissions.deny` | `rm`, `brew install`, … | hard-blocks destructive/host-mutating commands |
+
+Keep `contextWindowSize` equal to the agent server's context (`CODELLM_CTX` for the agent preset).
 
 ### Honest expectations
 
@@ -433,7 +447,9 @@ start it on demand so it's not always holding ~9 GB of RAM.
 | aider makes a bad edit | `/undo` inside aider reverts its last commit; use `codellm use quality` for better edits. |
 | Download stuck at 0 B/s / 160 KB/s | Authenticate (`hf auth login --token …`) and use `HF_HUB_DISABLE_XET=1 hf download …`. |
 | `curl`/`aria2c` HF download fails (`errorCode=22`) | HF Xet byte-range-locks URLs; use the `hf` CLI with `HF_HUB_DISABLE_XET=1`. |
-| `codellm agent`: `request exceeds context size` | qwen-code needs a big window; the `agent` preset uses ctx 65536 — make sure you're on it (`codellm use agent`). |
+| `codellm agent`: `request exceeds context size` | The `agent` preset is ctx 98304; ensure `model.generationConfig.contextWindowSize` in `~/.qwen/settings.json` matches so qwen auto-compresses. Quieten verbose commands (`jest --silent`) or `/compress`. |
+| qwen crashes: `ansiRegex is not a function` / `setRawMode EIO` | Node 26 incompatibility. Use Node 22 LTS: `brew install node@22 && brew unlink node && brew link --overwrite --force node@22 && npm i -g @qwen-code/qwen-code`. |
+| qwen: `Request timeout after NNNs` | The 30B is slow; raise `model.generationConfig.timeout` (we use `1800000` = 30 min). |
 | `codellm agent` says "still downloading" | The Qwen3-Coder model isn't fully downloaded yet; it leaves your current server running. |
 | qwen-code: tool needs approval in headless | Add `-y` (YOLO): `codellm agent -y -p "…"`. |
 | Podman build fails under the agent sandbox | The `podman` Seatbelt profile is auto-installed; if writes are still blocked, run `CODELLM_SANDBOX=0 codellm agent`, or add the needed path to `~/.config/codellm/sandbox-macos-podman.sb`. |

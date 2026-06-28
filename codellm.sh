@@ -14,6 +14,7 @@ export CODELLM_CTX="${CODELLM_CTX:-40960}"   # context window; q8 KV keeps it in
 export CODELLM_URL="http://localhost:${CODELLM_PORT}"
 export CODELLM_REPO="${CODELLM_REPO:-$HOME/repo/onprem-ai}"  # where `codellm sync` publishes this script
 export CODELLM_SANDBOX="${CODELLM_SANDBOX:-1}"               # codellm agent runs sandboxed (-s) by default; 0 to disable
+export CODELLM_KV="${CODELLM_KV:-q8_0}"                      # KV cache quant (q8_0 default; agent uses q4_0 for more context)
 
 # ── internal helpers (prefixed _codellm_) ──────────────────────────────
 _codellm_running() { curl -s "${CODELLM_URL}/health" >/dev/null 2>&1; }
@@ -35,7 +36,7 @@ _codellm_start() {
   nohup "$CODELLM_BIN/llama-server" \
     -m "$CODELLM_MODEL" \
     --port "$CODELLM_PORT" -c "$CODELLM_CTX" -ngl 99 \
-    -fa on -ctk q8_0 -ctv q8_0 "${jinja[@]}" \
+    -fa on -ctk "$CODELLM_KV" -ctv "$CODELLM_KV" "${jinja[@]}" \
     > "$HOME/.config/codellm/server.log" 2>&1 &
   local pid=$!
   # Wait for health — but bail out if the server process dies (don't loop forever).
@@ -66,10 +67,10 @@ _codellm_stop() {
 _codellm_use() {
   case "$1" in
     # fast/quality reset to the safe default context (40960) — big ctx + 14B overflows GPU memory.
-    fast|7b)     export CODELLM_MODEL="$CODELLM_MODEL_7B";    export CODELLM_CTX=40960; export CODELLM_JINJA=""; echo "codellm: → 7B (fast), ctx 40960" ;;
-    quality|14b) export CODELLM_MODEL="$CODELLM_MODEL_14B";   export CODELLM_CTX=40960; export CODELLM_JINJA=""; echo "codellm: → 14B (quality), ctx 40960" ;;
+    fast|7b)     export CODELLM_MODEL="$CODELLM_MODEL_7B";    export CODELLM_CTX=40960; export CODELLM_JINJA=""; export CODELLM_KV=q8_0; echo "codellm: → 7B (fast), ctx 40960" ;;
+    quality|14b) export CODELLM_MODEL="$CODELLM_MODEL_14B";   export CODELLM_CTX=40960; export CODELLM_JINJA=""; export CODELLM_KV=q8_0; echo "codellm: → 14B (quality), ctx 40960" ;;
     # long = 7B + large context for summarizing big docs / many files (fits in memory on the 7B).
-    long|docs)   export CODELLM_MODEL="$CODELLM_MODEL_7B";    export CODELLM_CTX=65536; export CODELLM_JINJA=""; echo "codellm: → 7B + 65536 ctx (large docs)" ;;
+    long|docs)   export CODELLM_MODEL="$CODELLM_MODEL_7B";    export CODELLM_CTX=65536; export CODELLM_JINJA=""; export CODELLM_KV=q8_0; echo "codellm: → 7B + 65536 ctx (large docs)" ;;
     # agent = Qwen3-Coder-30B (MoE) with tool-call parsing on — for the agentic CLI.
     agent)
       if ! _codellm_model_ready "$CODELLM_MODEL_AGENT" "$CODELLM_MODEL_AGENT_BYTES"; then
@@ -77,7 +78,7 @@ _codellm_use() {
         echo "codellm: agent model still downloading ($((have/1000000))/$((CODELLM_MODEL_AGENT_BYTES/1000000)) MB) — try again when complete." >&2
         return 1   # leave the current server untouched
       fi
-      export CODELLM_MODEL="$CODELLM_MODEL_AGENT"; export CODELLM_CTX=65536; export CODELLM_JINJA=1;  echo "codellm: → Qwen3-Coder-30B agent (tools/jinja on), ctx 65536" ;;
+      export CODELLM_MODEL="$CODELLM_MODEL_AGENT"; export CODELLM_CTX=98304; export CODELLM_JINJA=1; export CODELLM_KV=q4_0; echo "codellm: → Qwen3-Coder-30B agent (tools/jinja, q4 KV), ctx 98304" ;;
     *) echo "usage: codellm use fast|quality|long|agent   (current: ${CODELLM_MODEL##*/}, ctx ${CODELLM_CTX})"; return 1 ;;
   esac
   _codellm_stop; _codellm_start
