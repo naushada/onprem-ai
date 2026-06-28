@@ -329,6 +329,19 @@ The agent relies on a few settings (global, apply to every qwen run) — see `qw
 
 Keep `contextWindowSize` equal to the agent server's context (`CODELLM_CTX` for the agent preset).
 
+### Performance — KV cache reuse
+
+The server runs with `--parallel 1` (one slot → the conversation's KV is always reused),
+`--cache-reuse 256` (reuse cached chunks across context edits like compression), and
+`--slot-save-path` (persist KV to disk). After the first prefill, each agent step only processes the
+**new** tokens instead of re-running the whole ~40K prefix.
+
+`codellm stop`/`use` **saves** the agent model's KV to `~/.config/codellm/slots/` and `codellm
+start` **restores** it — so a restart or model-switch-back skips the cold reprocess. Caveats:
+- A restart still cold-starts **once** if no saved cache exists yet (it's written on the next stop).
+- Tool outputs are genuinely new tokens (always processed) — quieten verbose commands to reduce them.
+- Caching removes redundant prefill; it doesn't make the 30B itself faster.
+
 ### Honest expectations
 
 - ✅ Tool-calling **works** — it really explores and edits.
