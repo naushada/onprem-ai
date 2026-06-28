@@ -15,6 +15,7 @@ export CODELLM_URL="http://localhost:${CODELLM_PORT}"
 export CODELLM_REPO="${CODELLM_REPO:-$HOME/repo/onprem-ai}"  # where `codellm sync` publishes this script
 export CODELLM_SANDBOX="${CODELLM_SANDBOX:-1}"               # codellm agent runs sandboxed (-s) by default; 0 to disable
 export CODELLM_KV="${CODELLM_KV:-q8_0}"                      # KV cache quant (q8_0 default; agent uses q4_0 for more context)
+export CODELLM_SLOTDIR="${CODELLM_SLOTDIR:-$HOME/.config/codellm/slots}"  # persisted KV cache (agent restart survives)
 
 # ── internal helpers (prefixed _codellm_) ──────────────────────────────
 _codellm_running() { curl -s "${CODELLM_URL}/health" >/dev/null 2>&1; }
@@ -35,11 +36,13 @@ _codellm_start() {
   # Flash attention + q8_0 KV cache keep a large context within the M5's ~18.6 GB GPU budget.
   # --parallel 1: single user → one slot, so the conversation's KV cache is always reused.
   # --cache-reuse: reuse cached KV chunks across context edits (compression) instead of reprocessing.
+  # --slot-save-path: enables saving/restoring KV to disk so restarts don't cold-start (see _codellm_stop/restore).
+  mkdir -p "$CODELLM_SLOTDIR"
   nohup "$CODELLM_BIN/llama-server" \
     -m "$CODELLM_MODEL" \
     --port "$CODELLM_PORT" -c "$CODELLM_CTX" -ngl 99 \
     -fa on -ctk "$CODELLM_KV" -ctv "$CODELLM_KV" \
-    --parallel 1 --cache-reuse 256 "${jinja[@]}" \
+    --parallel 1 --cache-reuse 256 --slot-save-path "$CODELLM_SLOTDIR" "${jinja[@]}" \
     > "$HOME/.config/codellm/server.log" 2>&1 &
   local pid=$!
   # Wait for health — but bail out if the server process dies (don't loop forever).
@@ -52,6 +55,16 @@ _codellm_start() {
     sleep 1
   done
   echo "codellm: ready → ${CODELLM_URL}"
+  # Restore the agent model's saved KV cache so a restart doesn't cold-reprocess the context.
+  case "$(basename "$CODELLM_MODEL")" in
+    Qwen3-Coder*)
+      local kvf="kv-$(basename "$CODELLM_MODEL").bin"
+      if [ -f "$CODELLM_SLOTDIR/$kvf" ]; then
+        curl -s -m 180 -X POST "${CODELLM_URL}/slots/0?action=restore" \
+          -H "Content-Type: application/json" -d "{\"filename\":\"$kvf\"}" >/dev/null 2>&1 \
+          && echo "codellm: restored agent context cache (warm start)"
+      fi ;;
+  esac
 }
 
 # Stop and WAIT until the server is truly gone (fixes restart race).
@@ -59,6 +72,14 @@ _codellm_stop() {
   if ! pgrep -f "llama-server.*--port ${CODELLM_PORT}" >/dev/null 2>&1; then
     echo "codellm: not running"; return 0
   fi
+  # Save the agent model's KV cache before killing, so the next start can warm-restore it.
+  local rid; rid="$(curl -s -m 5 "${CODELLM_URL}/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)"
+  case "$rid" in
+    *Qwen3-Coder*)
+      mkdir -p "$CODELLM_SLOTDIR"; echo "codellm: saving agent context cache ..."
+      curl -s -m 300 -X POST "${CODELLM_URL}/slots/0?action=save" \
+        -H "Content-Type: application/json" -d "{\"filename\":\"kv-${rid}.bin\"}" >/dev/null 2>&1 ;;
+  esac
   pkill -f "llama-server.*--port ${CODELLM_PORT}" 2>/dev/null
   local n=0
   while pgrep -f "llama-server.*--port ${CODELLM_PORT}" >/dev/null 2>&1 && [ $n -lt 50 ]; do
