@@ -129,12 +129,22 @@ _codellm_agent() {
   local id; id="$(curl -s "${CODELLM_URL}/v1/models" | jq -r '.data[0].id')"
   # Sandbox on by default (macOS Seatbelt): confines writes to the project, network stays open
   # so the local model server is reachable. Disable with CODELLM_SANDBOX=0.
-  local sb=() sbnote="sandbox OFF"
-  if [ "${CODELLM_SANDBOX:-1}" != "0" ]; then sb=(-s); sbnote="sandboxed"; fi
+  local sb=() seat=() sbnote="sandbox OFF"
+  if [ "${CODELLM_SANDBOX:-1}" != "0" ]; then
+    sb=(-s); sbnote="sandboxed"
+    # Provision the podman-aware Seatbelt profile into this project's .qwen/ and select it,
+    # so Podman builds work inside the sandbox. Seatbelt profiles are resolved per-project.
+    local prof="$HOME/.config/codellm/sandbox-macos-podman.sb"
+    if [ -f "$prof" ]; then
+      mkdir -p "$PWD/.qwen" && cp -f "$prof" "$PWD/.qwen/sandbox-macos-podman.sb"
+      seat=(SEATBELT_PROFILE=podman); sbnote="sandboxed (podman-aware)"
+    fi
+  fi
   echo "codellm: qwen-code agent → ${id} @ ${CODELLM_URL}  (${sbnote}; explores + edits; offline)"
-  OPENAI_API_KEY="dummy" \
-  OPENAI_BASE_URL="${CODELLM_URL}/v1" \
-  OPENAI_MODEL="$id" \
+  env "${seat[@]}" \
+    OPENAI_API_KEY="dummy" \
+    OPENAI_BASE_URL="${CODELLM_URL}/v1" \
+    OPENAI_MODEL="$id" \
     qwen "${sb[@]}" "$@"
 }
 

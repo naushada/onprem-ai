@@ -1,0 +1,37 @@
+;; codellm: macOS Seatbelt profile = permissive-open + Podman whitelisting.
+;; Lets `codellm agent` run sandboxed while still using Podman for builds.
+;; Podman on macOS connects to its VM over SSH/loopback (allowed by `allow default`)
+;; and reads its identity key; it just needs write access to its storage/config dirs,
+;; which the default profile blocks. We add those here.
+(version 1)
+
+;; allow everything by default (network, exec, reads) — same as permissive-open
+(allow default)
+
+;; deny all writes EXCEPT under specific paths
+(deny file-write*)
+(allow file-write*
+    (subpath (param "TARGET_DIR"))
+    (subpath (param "TMP_DIR"))
+    (subpath (param "CACHE_DIR"))
+    (subpath (param "QWEN_DIR"))
+    (subpath (param "RUNTIME_DIR"))
+    (subpath (string-append (param "HOME_DIR") "/.npm"))
+    (subpath (string-append (param "HOME_DIR") "/.cache"))
+    (subpath (string-append (param "HOME_DIR") "/.gitconfig"))
+    ;; --- Podman: storage, machine state, config, and ssh known_hosts ---
+    (subpath (string-append (param "HOME_DIR") "/.local/share/containers"))
+    (subpath (string-append (param "HOME_DIR") "/.config/containers"))
+    (subpath (string-append (param "HOME_DIR") "/.ssh"))
+    ;; Allow writes to included directories from --include-directories
+    (subpath (param "INCLUDE_DIR_0"))
+    (subpath (param "INCLUDE_DIR_1"))
+    (subpath (param "INCLUDE_DIR_2"))
+    (subpath (param "INCLUDE_DIR_3"))
+    (subpath (param "INCLUDE_DIR_4"))
+    (literal "/dev/stdout")
+    (literal "/dev/stderr")
+    (literal "/dev/null")
+    (literal "/dev/ptmx")
+    (regex #"^/dev/ttys[0-9]*$")
+)

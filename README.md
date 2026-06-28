@@ -60,6 +60,7 @@ pipx install "huggingface_hub[cli,hf_transfer]"
 # 2. Build llama.cpp (see "Step 1 — Build llama.cpp" below), then drop the toolkit in place:
 mkdir -p ~/.config/codellm
 cp codellm.sh ~/.config/codellm/codellm.sh
+cp sandbox-macos-podman.sb ~/.config/codellm/   # podman-aware agent sandbox profile
 echo 'source ~/.config/codellm/codellm.sh' >> ~/.zshrc
 source ~/.zshrc
 
@@ -321,6 +322,24 @@ codellm agent            # auto-loads the Qwen3-Coder model (jinja/tools on), la
   prompt). Great for "go figure this out" tasks you can walk away from; not snappy like the 14B chat.
 - 🎯 Q3 quant + 30B is *good*, not Claude-Opus-level. For the hardest reasoning, real Claude Code still wins.
 
+### Sandbox & Podman builds
+
+`codellm agent` runs **sandboxed by default** (macOS Seatbelt). The sandbox confines writes to the
+project directory (host dirs like `/opt/homebrew` are protected) while leaving network open so the
+local model server stays reachable. Disable per session with `CODELLM_SANDBOX=0 codellm agent`.
+
+Because the global `QWEN.md` tells the agent to **build inside Podman**, the helper auto-installs a
+**podman-aware Seatbelt profile** so containerized builds work inside the sandbox:
+
+- Canonical profile: `~/.config/codellm/sandbox-macos-podman.sb` (base `permissive-open` + write
+  access to `~/.local/share/containers`, `~/.config/containers`, `~/.ssh`).
+- On launch, `codellm agent` copies it to `./.qwen/sandbox-macos-podman.sb` in the current repo and
+  sets `SEATBELT_PROFILE=podman` (Seatbelt profiles are resolved per-project).
+- You may see `./.qwen/sandbox-macos-podman.sb` appear in your repo — safe to commit or gitignore.
+
+This is why Podman (which talks to its VM over SSH/loopback and writes to `~/.local/share/containers`)
+keeps working even with the sandbox on.
+
 ## Downloading models (important)
 
 Hugging Face **throttles anonymous downloads hard** (we saw 160 KB/s and stalls). Also, HF's newer
@@ -416,6 +435,8 @@ start it on demand so it's not always holding ~9 GB of RAM.
 | `codellm agent`: `request exceeds context size` | qwen-code needs a big window; the `agent` preset uses ctx 65536 — make sure you're on it (`codellm use agent`). |
 | `codellm agent` says "still downloading" | The Qwen3-Coder model isn't fully downloaded yet; it leaves your current server running. |
 | qwen-code: tool needs approval in headless | Add `-y` (YOLO): `codellm agent -y -p "…"`. |
+| Podman build fails under the agent sandbox | The `podman` Seatbelt profile is auto-installed; if writes are still blocked, run `CODELLM_SANDBOX=0 codellm agent`, or add the needed path to `~/.config/codellm/sandbox-macos-podman.sb`. |
+| `brew install` / `rm` refused by the agent | Intended — blocked in `~/.qwen/settings.json` (`permissions.deny`). Manage with `/permissions`. |
 
 ---
 
