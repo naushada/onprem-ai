@@ -122,6 +122,12 @@ _codellm_ask() {
 # Auto-switches the server to the agent model if it isn't already loaded.
 _codellm_agent() {
   if ! command -v qwen >/dev/null 2>&1; then echo "codellm: 'qwen' (qwen-code) not installed" >&2; return 1; fi
+  # qwen-code is tested on Node 22 LTS; Node 23+ (require(ESM) default) crashes its UI (ansiRegex).
+  local nodemaj; nodemaj="$(node -v 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/')"
+  if [ -n "$nodemaj" ] && [ "$nodemaj" != "22" ]; then
+    echo "codellm: ⚠ Node $(node -v) detected — qwen-code wants Node 22 LTS (23+ can crash its UI)." >&2
+    echo "         Fix: brew install node@22 && brew unlink node && brew link --overwrite --force node@22 && npm i -g @qwen-code/qwen-code" >&2
+  fi
   local running_id; running_id="$(curl -s "${CODELLM_URL}/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null)"
   case "$running_id" in
     *Qwen3-Coder*) : ;;  # agent model already loaded
