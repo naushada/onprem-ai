@@ -335,7 +335,8 @@ Because the global `QWEN.md` tells the agent to **build inside Podman**, the hel
   access to `~/.local/share/containers`, `~/.config/containers`, `~/.ssh`).
 - On launch, `codellm agent` copies it to `./.qwen/sandbox-macos-podman.sb` in the current repo and
   sets `SEATBELT_PROFILE=podman` (Seatbelt profiles are resolved per-project).
-- You may see `./.qwen/sandbox-macos-podman.sb` appear in your repo — safe to commit or gitignore.
+- The generated `./.qwen/sandbox-macos-podman.sb` is auto-added to the repo's `.git/info/exclude`,
+  so it won't clutter `git status` (local-only — your shared `.gitignore` is untouched).
 
 This is why Podman (which talks to its VM over SSH/loopback and writes to `~/.local/share/containers`)
 keeps working even with the sandbox on.

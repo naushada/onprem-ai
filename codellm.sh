@@ -138,6 +138,12 @@ _codellm_agent() {
     if [ -f "$prof" ]; then
       mkdir -p "$PWD/.qwen" && cp -f "$prof" "$PWD/.qwen/sandbox-macos-podman.sb"
       seat=(SEATBELT_PROFILE=podman); sbnote="sandboxed (podman-aware)"
+      # Keep the generated profile out of `git status` via local exclude (not shared .gitignore).
+      if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local exf pat=".qwen/sandbox-macos-podman.sb"
+        exf="$(git rev-parse --git-path info/exclude 2>/dev/null)"
+        [ -n "$exf" ] && ! grep -qxF "$pat" "$exf" 2>/dev/null && printf '%s\n' "$pat" >> "$exf"
+      fi
     fi
   fi
   echo "codellm: qwen-code agent → ${id} @ ${CODELLM_URL}  (${sbnote}; explores + edits; offline)"
